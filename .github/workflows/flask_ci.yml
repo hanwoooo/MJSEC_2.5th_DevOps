@@ -20,25 +20,56 @@
 #       - name: Run tests
 #         run: pytest
 
-name: Build and Run Flask App in Docker
+# 과제
+# name: Build and Run Flask App in Docker
+
+# on:
+#   push:
+#     branches: [ main ]
+
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#     - name: Checkout repository
+#       uses: actions/checkout@v3
+
+#     - name: Set up Docker Buildx
+#       uses: docker/setup-buildx-action@v2
+
+#     - name: Build Docker image
+#       run: docker build -t hanwoo .
+
+#     - name: Run Docker container
+#       run: docker run -d -p 5000:5000 hanwoo
+
+name: CI with Docker & Docker Compose
 
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Check out repository
+        uses: actions/checkout@v3
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
+      - name: Build & start services
+        run: |
+          docker compose up -d --build
+          # give the app a moment to start
+          sleep 10
 
-    - name: Build Docker image
-      run: docker build -t hanwoo .
+      - name: Run test suite
+        run: |
+          docker compose exec web pytest
 
-    - name: Run Docker container
-      run: docker run -d -p 5000:5000 hanwoo
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes --remove-orphans
