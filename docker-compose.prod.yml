@@ -42,7 +42,8 @@ services:
       - --agree-tos
       - --email
       - "${LETSENCRYPT_EMAIL}"
-      - -d "${DOMAIN}"
+      - -d 
+      - "${DOMAIN}"
     volumes:
       - ./certbot/config:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
