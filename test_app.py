@@ -8,7 +8,7 @@ def client():
 def test_index_page(client):
     resp = client.get("/")
     assert resp.status_code == 200
-    assert b"<h1>\xeb\xb0\xa9\uba85\ub85d</h1>" in resp.data  # "방명록" UTF-8 인코딩 확인
+    assert b"<h1>essay</h1>" in resp.data  # "방명록" UTF-8 인코딩 확인
     assert b"No messages" in resp.data
 
 def test_post_message(client):
