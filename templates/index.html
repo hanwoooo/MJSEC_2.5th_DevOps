@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>essay</title>
+</head>
+<body>
+    <h1>essay</h1>
+    <form method="POST">
+        <input type="text" name="name" placeholder="이름">
+        <br><br>
+        <textarea name="message" placeholder="메시지 입력" required></textarea>
+        <br><br>
+        <button type="submit">등록</button>
+    </form>
+    <hr>
+    <h2>메시지 목록</h2>
+    {% for msg in messages %}
+        <p><strong>{{ msg.name }}</strong> : {{ msg.message }}</p>
+    {% else %}
+        <p>No messages</p>
+    {% endfor %}
+</body>
+</html>
