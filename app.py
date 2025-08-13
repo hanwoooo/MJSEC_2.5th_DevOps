@@ -15,5 +15,9 @@ def index():
         return redirect("/")
     return render_template("index.html", messages=messages)
 
+@app.route("/dd")
+def dd():
+    return render_template("dd.html")
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
