@@ -5,7 +5,7 @@ FROM python:3.10-slim
 WORKDIR /app
 
 # 시스템 패키지 업데이트를 통한 securtiy 패치
-RUN python -m pip install --uprade pip setuptools==78.1.1 wheel
+RUN python -m pip install --upgrade pip setuptools==78.1.1 wheel
 
 # 의존성 파일 복사
 COPY requirements.txt .
