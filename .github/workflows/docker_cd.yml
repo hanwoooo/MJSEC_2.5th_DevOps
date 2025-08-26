@@ -1,5 +1,5 @@
 # .github/workflows/cd.yml
-name: CD  Build, Push & Deploy to GCE
+name: CD – Build, Push & Deploy to GCE
 
 on:
   push:
@@ -95,7 +95,7 @@ jobs:
           name: trivy-image-json
           path: trivy-image.json
           retention-days: 7
-
+          
       - name: Login to Docker Hub (for cosign push)
         uses: docker/login-action@v3
         with:
@@ -113,8 +113,7 @@ jobs:
         uses: sigstore/cosign-installer@v3.9.2
 
       - name: Cosign sign & attest (keyless)
-        env:
-          COSIGN_EXPERIMENTAL: "1"
+        env: { COSIGN_EXPERIMENTAL: "1" }
         run: |
           set -euo pipefail
           cosign sign --yes "$IMG"
@@ -127,12 +126,11 @@ jobs:
           path: sbom.spdx.json
           retention-days: 30
 
-
 ###############################################################################
 # 2) Deploy to GCE VM
 ###############################################################################
   deploy:
-    needs: [build-and-push, security-gate]
+    needs: [ build-and-push, security-gate ]
     runs-on: ubuntu-latest
     env:
       REMOTE_DIR:        ${{ secrets.REMOTE_APP_DIR }}
@@ -144,7 +142,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Install cosign
         uses: sigstore/cosign-installer@v3.9.2
 
@@ -156,7 +153,7 @@ jobs:
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             --certificate-identity-regexp "https://github.com/${{ github.repository }}(/|@).*" \
             "${IMG}" >/dev/null
-          echo "Cosign verify OK for ${IMG}"  
+          echo "Cosign verify OK for ${IMG}"
 
       # ── 0. SSH 준비 ──────────────────────────────────────────────────────
       - name: Set up SSH agent
@@ -175,12 +172,13 @@ jobs:
         run: ssh -o ConnectTimeout=10 ${{ secrets.GCP_USER }}@${{ secrets.GCP_HOST }} "echo OK"
 
       # ── 1. 디렉터리 & .env ──────────────────────────────────────────────
-      - name: Prepare remote directory & .env (pin by digest)
+      - name: Prepare remote directory & .env
         run: |
           ssh ${{ secrets.GCP_USER }}@${{ secrets.GCP_HOST }} <<'EOF'
             set -euo pipefail
             mkdir -p "${{ env.REMOTE_DIR }}"/{nginx,certbot/{config,www,logs}}
-            cat >"${{ env.REMOTE_DIR }}/.env" <<EOT
+            mkdir -p "${{ env.REMOTE_DIR }}"/nginx/{modsec,logs,modsec-logs}
+            cat > "${{ env.REMOTE_DIR }}/.env" <<EOT
             DOMAIN=${{ env.DOMAIN }}
             LETSENCRYPT_EMAIL=${{ env.LETSENCRYPT_EMAIL }}
             IMAGE_REF=${{ env.IMG }}
@@ -188,25 +186,35 @@ jobs:
             EOT
           EOF
 
-
-      # ── 2. HTTP‑only 템플릿 & Compose 업로드 ─────────────────────────────
-      - name: Upload HTTP‑only Nginx template and compose
+      # ── 2-a. Compose & 템플릿 업로드 ────────────────────────────────────
+      - name: Upload HTTP-only Nginx template and compose
         run: |
           scp -o StrictHostKeyChecking=no nginx/default.http.conf.template \
             ${{ secrets.GCP_USER }}@${{ secrets.GCP_HOST }}:"${{ env.REMOTE_DIR }}/nginx/default.conf.template"
           scp -o StrictHostKeyChecking=no docker-compose.prod.yml \
             ${{ secrets.GCP_USER }}@${{ secrets.GCP_HOST }}:"${{ env.REMOTE_DIR }}/"
 
-      # ── 3. 스택 기동 (80) ───────────────────────────────────────────────
-      - name: Start HTTP‑only stack
+      # ── 2-b. Nginx WAF build context 업로드 (Dockerfile.waf, modsec 등) ──
+      - name: Upload nginx WAF build context (no rsync; tar over SSH)
+        run: |
+          set -euo pipefail
+          tar -C nginx -czf - . \
+            | ssh -o StrictHostKeyChecking=no ${{ secrets.GCP_USER }}@${{ secrets.GCP_HOST }} \
+              "mkdir -p '${{ env.REMOTE_DIR }}/nginx' && tar -xzf - -C '${{ env.REMOTE_DIR }}/nginx'"
+
+      # ── 3. HTTP-only 스택 기동 (nginx 먼저 빌드) ─────────────────────────
+      - name: Start HTTP-only stack (build nginx)
         run: |
           ssh ${{ secrets.GCP_USER }}@${{ secrets.GCP_HOST }} "
+            set -euo pipefail
             cd '${{ env.REMOTE_DIR }}' &&
             docker compose -f docker-compose.prod.yml down --remove-orphans || true &&
+            docker compose -f docker-compose.prod.yml build --pull nginx &&
+            docker compose -f docker-compose.prod.yml pull web || true &&
             docker compose -f docker-compose.prod.yml up -d nginx web
           "
 
-      # ── 4. HTTP 응답 대기 ──────────────────────────────────────────────
+      # ── 4. HTTP 응답 대기 ───────────────────────────────────────────────
       - name: Wait for HTTP (fail if not ready)
         run: |
           set -euo pipefail
@@ -220,6 +228,15 @@ jobs:
           echo "ERROR: HTTP did not become ready in time" >&2
           exit 1
 
+      # ── (옵션) nginx 문법/모듈 확인 ─────────────────────────────────────
+      - name: Verify nginx (syntax & modsecurity)
+        if: always()
+        run: |
+          ssh ${{ secrets.GCP_USER }}@${{ secrets.GCP_HOST }} "
+            cd '${{ env.REMOTE_DIR }}' &&
+            docker compose -f docker-compose.prod.yml exec -T nginx nginx -t &&
+            docker compose -f docker-compose.prod.yml exec -T nginx sh -lc 'ls -l /usr/lib/nginx/modules | grep modsecurity || true'
+          "
 
       # ── 5. 인증서 발급/갱신 ──────────────────────────────────────────────
       - name: Issue / Renew SSL
@@ -241,11 +258,7 @@ jobs:
             docker compose -f docker-compose.prod.yml run --rm --entrypoint "" certbot sh -euxc '
               OPTIONS=/etc/letsencrypt/options-ssl-nginx.conf
               DHPARAM=/etc/letsencrypt/ssl-dhparams.pem
-
-              # 0) 반드시 디렉터리 확보
               mkdir -p /etc/letsencrypt
-
-              # 1) options-ssl-nginx.conf 확보
               if [ ! -f "$OPTIONS" ]; then
                 SRC=$(find /usr /opt -maxdepth 7 -type f -name options-ssl-nginx.conf 2>/dev/null | head -n1 || true)
                 if [ -n "$SRC" ]; then
@@ -256,8 +269,6 @@ jobs:
                     -o "$OPTIONS" || true
                 fi
               fi
-
-              # 1-b) 최소 TLS 설정 (fallback)
               if [ ! -s "$OPTIONS" ]; then
                 printf "%s\n" \
                   "ssl_session_cache   shared:SSL:10m;" \
@@ -267,15 +278,11 @@ jobs:
                   "ssl_ciphers EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH;" \
                   > "$OPTIONS"
               fi
-
-              # 2) ssl-dhparams.pem (없으면 2048bit 생성)
               if [ ! -f "$DHPARAM" ]; then
                 openssl dhparam -out "$DHPARAM" 2048
               fi
             '
           EOF
-
-
 
       # ── 7. HTTPS 템플릿 업로드 ───────────────────────────────────────────
       - name: Upload HTTPS Nginx template
@@ -289,19 +296,20 @@ jobs:
           ssh ${{ secrets.GCP_USER }}@${{ secrets.GCP_HOST }} << 'EOF'
             cd '${{ env.REMOTE_DIR }}' &&
             docker compose -f docker-compose.prod.yml exec nginx sh -c '
-            # 모든 환경변수 치환 (여기선 DOMAIN)
-            envsubst '\''$DOMAIN'\'' \
-              < /etc/nginx/templates/default.conf.template \
-              > /etc/nginx/conf.d/default.conf \
-            && nginx -s reload
-          '
+             envsubst '\''$DOMAIN'\'' \
+               < /etc/nginx/templates/default.conf.template \
+               > /etc/nginx/conf.d/default.conf \
+             && nginx -s reload
+           '
           EOF
 
-      # ── 9. 최신 이미지 pull & 전체 스택 ─────────────────────────────────
-      - name: Deploy latest stack
+      # ── 9. 최신 이미지 pull & WAF 재빌드 후 전체 스택 ───────────────────
+      - name: Deploy latest stack (rebuild nginx)
         run: |
           ssh ${{ secrets.GCP_USER }}@${{ secrets.GCP_HOST }} "
+            set -euo pipefail
             cd '${{ env.REMOTE_DIR }}' &&
+            docker compose -f docker-compose.prod.yml build --pull nginx &&
             docker compose -f docker-compose.prod.yml pull &&
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
           "
@@ -335,8 +343,8 @@ jobs:
     steps:
       - name: Success notice
         if: success()
-        run: echo "Deployed to ${{ secrets.DOMAIN }}"
+        run: echo "✅  Deployed to ${{ secrets.DOMAIN }}"
 
       - name: Failure notice
         if: failure()
-        run: echo "Deployment to ${{ secrets.DOMAIN }} failed"
+        run: echo "❌  Deployment to ${{ secrets.DOMAIN }} failed"
