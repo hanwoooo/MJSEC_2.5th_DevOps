@@ -4,6 +4,15 @@ FROM python:3.10-slim
 # 작업 디렉토리 생성
 WORKDIR /app
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    libffi-dev \
+    libssl-dev \
+    python3-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
 # 시스템 패키지 업데이트를 통한 securtiy 패치
 RUN python -m pip install --upgrade pip setuptools==78.1.1 wheel
 
